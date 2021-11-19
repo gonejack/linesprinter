@@ -5,45 +5,57 @@ import "io"
 // LinesPrinter break string into fixed length lines.
 // caller must call Close to flush remaining bytes and an extra ending sep after use.
 type LinesPrinter struct {
-	w   io.Writer
-	n   int
-	np  int
-	len int
-	cap int
+	output io.Writer
+
 	sep []byte
-	dat []byte
+
+	n struct {
+		chars int
+		full  int
+	}
+
+	b struct {
+		dat []byte
+		len int
+		cap int
+	}
 }
 
-func (x *LinesPrinter) Write(p []byte) (n int, err error) {
+func (pp *LinesPrinter) Write(p []byte) (n int, err error) {
 	for {
 		if len(p) == 0 {
 			break
 		}
-		d := x.n - x.len%x.np
-		if len(p) < d {
-			d = len(p)
+
+		ncp := pp.n.chars - pp.b.len%pp.n.full
+		if len(p) < ncp {
+			ncp = len(p)
 		}
-		x.len += copy(x.dat[x.len:], p[:d])
-		p, n = p[d:], n+d
-		if x.len%x.np == x.n {
-			x.len += copy(x.dat[x.len:], x.sep)
+
+		pp.b.len += copy(pp.b.dat[pp.b.len:], p[:ncp])
+		n += ncp
+		p = p[ncp:]
+
+		if pp.b.len%pp.n.full == pp.n.chars {
+			pp.b.len += copy(pp.b.dat[pp.b.len:], pp.sep)
 		}
-		if x.len == x.cap {
-			_, e := x.w.Write(x.dat[:])
+
+		if pp.b.len == pp.b.cap {
+			_, e := pp.output.Write(pp.b.dat[:])
 			if e != nil {
 				return n, e
 			}
-			x.len = 0
+			pp.b.len = 0
 		}
 	}
 	return
 }
 
 // Close the caller must call Close to flush any partially line, and ending sep.
-func (x *LinesPrinter) Close() (e error) {
-	if x.len > 0 {
-		_, e = x.w.Write(x.dat[:x.len])
-		_, e = x.w.Write(x.sep)
+func (pp *LinesPrinter) Close() (e error) {
+	if pp.b.len > 0 {
+		_, e = pp.output.Write(pp.b.dat[:pp.b.len])
+		_, e = pp.output.Write(pp.sep)
 	}
 	return
 }
@@ -63,12 +75,12 @@ func NewLinesPrinterN(w io.Writer, lineLen int, memLine int, sep []byte) *LinesP
 		panic("bufLen < 1")
 	}
 	p := &LinesPrinter{
-		w:   w,
-		n:   lineLen,
-		np:  lineLen + len(sep),
-		sep: sep,
+		output: w,
+		sep:    sep,
 	}
-	p.cap = p.np * memLine
-	p.dat = make([]byte, p.cap)
+	p.n.chars = lineLen
+	p.n.full = lineLen + len(sep)
+	p.b.cap = p.n.full * memLine
+	p.b.dat = make([]byte, p.b.cap)
 	return p
 }
